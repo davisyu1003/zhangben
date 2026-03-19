@@ -1,5 +1,5 @@
 // ✅ 替换为你自己的 Anthropic API Key
-const API_KEY = "sk-ant-api03-6cyW7Q8GHmhD2Kge5YUvAZ0";
+const API_KEY = "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";
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
