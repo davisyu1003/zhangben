@@ -1,5 +1,6 @@
-// ✅ 替换为你自己的 Anthropic API Key
-const API_KEY = "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";
+// ✅ 填入你的 OpenRouter API Key（sk-or-v1-xxxxxx）
+const OPENROUTER_API_KEY = "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";
+const OPENROUTER_MODEL   = "google/gemini-flash-1.5:free";
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
