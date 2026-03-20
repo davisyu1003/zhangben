@@ -4,6 +4,33 @@ const OPENROUTER_MODEL   = "google/gemini-flash-1.5:free";
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
+// ── OpenRouter API 调用 ──
+const callAI = async (text, imageBase64 = null) => {
+  const content = imageBase64
+    ? [
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+        { type: "text", text },
+      ]
+    : text;
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": window.location.href,
+      "X-Title": "Fish Ledger",
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [{ role: "user", content }],
+      max_tokens: 1000,
+    }),
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.choices?.[0]?.message?.content?.trim() || "";
+};
+
 const CATS = [
   {name:"餐饮",icon:"🍜",color:"#FF6B35"},{name:"购物",icon:"🛒",color:"#E24B4A"},
   {name:"交通",icon:"🚗",color:"#378ADD"},{name:"住房",icon:"🏠",color:"#7F77DD"},
@@ -39,26 +66,18 @@ const getExpectedDates = (item) => {
   const cap = today < end ? today : end;
   const dates = [];
   const dayN  = Math.max(1, parseInt(item.dayOfPeriod) || 1);
-
   if (item.period === "每周") {
     const dowTarget = ({1:1,2:2,3:3,4:4,5:5,6:6,7:0})[dayN] ?? 1;
     let d = new Date(start + "T00:00:00");
     while (d.getDay() !== dowTarget) d.setDate(d.getDate() + 1);
-    while (true) {
-      const ds = d.toISOString().slice(0,10);
-      if (ds > cap) break;
-      dates.push(ds);
-      d.setDate(d.getDate() + 7);
-    }
+    while (true) { const ds = d.toISOString().slice(0,10); if (ds > cap) break; dates.push(ds); d.setDate(d.getDate() + 7); }
   } else if (item.period === "每月") {
     let d = new Date(start + "T00:00:00"); d.setDate(1);
     while (true) {
       const y = d.getFullYear(), m = d.getMonth();
       const actual = Math.min(dayN, new Date(y, m+1, 0).getDate());
       const ds = `${y}-${String(m+1).padStart(2,"0")}-${String(actual).padStart(2,"0")}`;
-      if (ds > cap) break;
-      if (ds >= start) dates.push(ds);
-      d.setMonth(d.getMonth() + 1);
+      if (ds > cap) break; if (ds >= start) dates.push(ds); d.setMonth(d.getMonth() + 1);
     }
   } else if (item.period === "每年") {
     const monN = Math.max(1, Math.min(12, parseInt(item.monthOfYear) || 1));
@@ -66,40 +85,21 @@ const getExpectedDates = (item) => {
     while (true) {
       const actual = Math.min(dayN, new Date(y, monN, 0).getDate());
       const ds = `${y}-${String(monN).padStart(2,"0")}-${String(actual).padStart(2,"0")}`;
-      if (ds > cap) break;
-      if (ds >= start) dates.push(ds);
-      y++;
+      if (ds > cap) break; if (ds >= start) dates.push(ds); y++;
     }
   }
   return dates;
 };
 
 const applyDueFixed = (fixedItems, existing) => {
-  let idSeq = Date.now();
-  const newRecs = [];
+  let idSeq = Date.now(); const newRecs = [];
   fixedItems.forEach(item => {
     getExpectedDates(item).forEach(ds => {
-      if (!existing.some(r => r.fixedId === item.id && r.date === ds)) {
+      if (!existing.some(r => r.fixedId === item.id && r.date === ds))
         newRecs.push({ id: idSeq++, date: ds, amount: parseFloat(item.amount), category: item.category, note: item.name, fixedId: item.id, isFixed: true });
-      }
     });
   });
   return newRecs;
-};
-
-const callAI = async (messages) => {
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages }),
-  });
-  const d = await r.json();
-  return d.content?.map(c => c.text || "").join("").trim();
 };
 
 function App() {
@@ -132,7 +132,6 @@ function App() {
 
   useEffect(() => { try { localStorage.setItem(SK, JSON.stringify(records)); } catch {} }, [records]);
   useEffect(() => { try { localStorage.setItem(SK + "_fx", JSON.stringify(fixedItems)); } catch {} }, [fixedItems]);
-
   useEffect(() => {
     if (!fixedItems.length) return;
     setRecords(prev => {
@@ -146,7 +145,6 @@ function App() {
     setToast({msg, type}); setTimeout(() => setToast(null), 2400);
   }, []);
 
-  // ── derived ──
   const allYears = useMemo(() => {
     const s = new Set(records.map(r => +r.date.slice(0,4))); s.add(curY);
     return [...s].sort((a,b) => b - a);
@@ -156,8 +154,7 @@ function App() {
   const homeRecs  = useMemo(() => records.filter(r => r.date.startsWith(homeMKey)), [records, homeMKey]);
   const homeTotal = useMemo(() => homeRecs.reduce((s,r) => s + r.amount, 0), [homeRecs]);
   const groupByDate = useMemo(() => {
-    const m = {};
-    homeRecs.forEach(r => { if (!m[r.date]) m[r.date] = []; m[r.date].push(r); });
+    const m = {}; homeRecs.forEach(r => { if (!m[r.date]) m[r.date] = []; m[r.date].push(r); });
     return Object.entries(m).sort((a,b) => b[0].localeCompare(a[0]));
   }, [homeRecs]);
 
@@ -167,29 +164,15 @@ function App() {
   const statsMKey = `${statsYear}-${String(statsMonth).padStart(2,"0")}`;
   const statsMonthRecs = useMemo(() => records.filter(r => r.date.startsWith(statsMKey)), [records, statsMKey]);
   const statsYearRecs  = useMemo(() => records.filter(r => r.date.startsWith(String(statsYear))), [records, statsYear]);
-
   const activeRecs  = useMemo(() => statsPeriod === "本周" ? weekRecs : statsPeriod === "本月" ? statsMonthRecs : statsYearRecs, [statsPeriod, weekRecs, statsMonthRecs, statsYearRecs]);
   const activeTotal = useMemo(() => activeRecs.reduce((s,r) => s + r.amount, 0), [activeRecs]);
   const catSum      = useMemo(() => { const m = {}; activeRecs.forEach(r => { m[r.category] = (m[r.category]||0) + r.amount; }); return m; }, [activeRecs]);
   const topCats     = useMemo(() => Object.entries(catSum).sort((a,b) => b[1] - a[1]), [catSum]);
 
   const trendData = useMemo(() => {
-    if (statsPeriod === "本周") return weekDates.map((d,i) => ({
-      label: ["一","二","三","四","五","六","日"][i],
-      value: records.filter(r => r.date === d).reduce((s,r) => s + r.amount, 0),
-      isToday: d === todayStr()
-    }));
-    if (statsPeriod === "本月") {
-      const days = getDaysInMonth(statsYear, statsMonth);
-      return Array.from({length: days}, (_, i) => {
-        const ds = `${statsMKey}-${String(i+1).padStart(2,"0")}`;
-        return { label: String(i+1), value: records.filter(r => r.date === ds).reduce((s,r) => s + r.amount, 0), isToday: ds === todayStr() };
-      });
-    }
-    return Array.from({length: 12}, (_, i) => {
-      const k = `${statsYear}-${String(i+1).padStart(2,"0")}`;
-      return { label: String(i+1), value: records.filter(r => r.date.startsWith(k)).reduce((s,r) => s + r.amount, 0), isToday: statsYear === curY && i+1 === curM };
-    });
+    if (statsPeriod === "本周") return weekDates.map((d,i) => ({ label: ["一","二","三","四","五","六","日"][i], value: records.filter(r => r.date === d).reduce((s,r) => s + r.amount, 0), isToday: d === todayStr() }));
+    if (statsPeriod === "本月") { const days = getDaysInMonth(statsYear, statsMonth); return Array.from({length: days}, (_, i) => { const ds = `${statsMKey}-${String(i+1).padStart(2,"0")}`; return { label: String(i+1), value: records.filter(r => r.date === ds).reduce((s,r) => s + r.amount, 0), isToday: ds === todayStr() }; }); }
+    return Array.from({length: 12}, (_, i) => { const k = `${statsYear}-${String(i+1).padStart(2,"0")}`; return { label: String(i+1), value: records.filter(r => r.date.startsWith(k)).reduce((s,r) => s + r.amount, 0), isToday: statsYear === curY && i+1 === curM }; });
   }, [statsPeriod, records, weekDates, statsMKey, statsYear, statsMonth]);
 
   useEffect(() => {
@@ -207,10 +190,7 @@ function App() {
     ctx.beginPath(); pts.forEach(([x,y],i) => i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y)); ctx.stroke();
     trendData.forEach(({label, value, isToday}, i) => {
       const [x,y] = pts[i];
-      if (value > 0) {
-        ctx.fillStyle = isToday ? "#FF6B35" : "#1a9e6e"; ctx.beginPath(); ctx.arc(x,y,isToday?4:3,0,Math.PI*2); ctx.fill();
-        if (n <= 14 || isToday) { ctx.fillStyle = isToday ? "#FF6B35" : "#555"; ctx.font = `${isToday?"600 ":""}9px sans-serif`; ctx.textAlign = "center"; ctx.fillText(value >= 1000 ? (value/1000).toFixed(1)+"k" : value.toFixed(0), x, y-7); }
-      }
+      if (value > 0) { ctx.fillStyle = isToday ? "#FF6B35" : "#1a9e6e"; ctx.beginPath(); ctx.arc(x,y,isToday?4:3,0,Math.PI*2); ctx.fill(); if (n <= 14 || isToday) { ctx.fillStyle = isToday ? "#FF6B35" : "#555"; ctx.font = `${isToday?"600 ":""}9px sans-serif`; ctx.textAlign = "center"; ctx.fillText(value >= 1000 ? (value/1000).toFixed(1)+"k" : value.toFixed(0), x, y-7); } }
       const show = n <= 12 || (n <= 31 && i%2 === 0) || i === 0 || i === n-1 || isToday;
       if (show) { ctx.fillStyle = isToday ? "#FF6B35" : "#bbb"; ctx.font = `${isToday?"600 ":""}9px sans-serif`; ctx.textAlign = "center"; ctx.fillText(label, x, H-4); }
     });
@@ -233,32 +213,30 @@ function App() {
   const handleAiText = async () => {
     if (!aiInput.trim()) return; setAiLoading(true);
     try {
-      const t = await callAI([{role:"user",content:`从以下描述提取消费记录，返回JSON数组，每项: date(YYYY-MM-DD，无则${todayStr()}),amount(数字),category(餐饮/购物/交通/住房/娱乐/医疗/教育/通讯/人情/其他),note(简短)。只返回JSON数组。描述：${aiInput}`}]);
+      const t = await callAI(`从以下描述提取消费记录，返回JSON数组，每项: date(YYYY-MM-DD，无则${todayStr()}),amount(数字),category(餐饮/购物/交通/住房/娱乐/医疗/教育/通讯/人情/其他),note(简短)。只返回JSON数组，不要任何其他文字。描述：${aiInput}`);
       addRecords(JSON.parse(t.replace(/```json|```/g,"").trim())); setAiInput(""); setAddMode(null);
-    } catch { showToast("解析失败","error"); }
+    } catch(e) { showToast("解析失败：" + e.message, "error"); }
     setAiLoading(false);
   };
   const handleImgParse = async () => {
     if (!imgBase64) return; setImgLoading(true);
     try {
-      const t = await callAI([{role:"user",content:[
-        {type:"image",source:{type:"base64",media_type:"image/jpeg",data:imgBase64}},
-        {type:"text",text:`识别图片消费信息，返回JSON数组，每项: date(YYYY-MM-DD，无则${todayStr()}),amount(数字人民币),category(餐饮/购物/交通/住房/娱乐/医疗/教育/通讯/人情/其他),note(商家或商品)。只返回JSON数组。`}
-      ]}]);
+      const t = await callAI(`识别图片中的消费信息，返回JSON数组，每项: date(YYYY-MM-DD，无则${todayStr()}),amount(数字人民币),category(餐饮/购物/交通/住房/娱乐/医疗/教育/通讯/人情/其他),note(商家或商品名)。只返回JSON数组，不要任何其他文字。`, imgBase64);
       addRecords(JSON.parse(t.replace(/```json|```/g,"").trim())); setImgPreview(null); setImgBase64(null); setAddMode(null);
-    } catch { showToast("识别失败","error"); }
+    } catch(e) { showToast("识别失败：" + e.message, "error"); }
     setImgLoading(false);
   };
   const handleGenAnalysis = async () => {
     if (!activeRecs.length) { showToast("暂无数据","info"); return; } setAnalysisLoading(true);
     const sum = {}; activeRecs.forEach(r => { sum[r.category] = (sum[r.category]||0) + r.amount; });
     try {
-      const t = await callAI([{role:"user",content:`${statsPeriod}消费分析（120字，含结构点评和建议）。总¥${activeTotal.toFixed(2)}，${JSON.stringify(sum)}，${activeRecs.length}笔。只返回分析文字。`}]);
+      const t = await callAI(`${statsPeriod}消费分析（120字，含结构点评和建议）。总¥${activeTotal.toFixed(2)}，分类：${JSON.stringify(sum)}，共${activeRecs.length}笔。只返回分析文字。`);
       setAnalysis(t || "");
-    } catch { setAnalysis("生成失败"); }
+    } catch(e) { setAnalysis("生成失败：" + e.message); }
     setAnalysisLoading(false);
   };
 
+  const resetFixedForm = () => setFixedForm({name:"",amount:"",category:"住房",period:"每月",dayOfPeriod:"1",startDate:todayStr(),endDate:"",monthOfYear:"1"});
   const saveFixedItem = () => {
     if (!fixedForm.name || !fixedForm.amount) { showToast("请填写名称和金额","error"); return; }
     if (!fixedForm.startDate) { showToast("请选择开始日期","error"); return; }
@@ -271,8 +249,7 @@ function App() {
       setFixedItems(prev => [...prev, saved]);
       setRecords(prev => { const due = applyDueFixed([saved], prev); setTimeout(() => showToast(due.length ? `已添加，自动生成 ${due.length} 笔账单` : "已添加固定支出"), 100); return [...due,...prev].sort((a,b) => b.date.localeCompare(a.date)); });
     }
-    setFixedForm({name:"",amount:"",category:"住房",period:"每月",dayOfPeriod:"1",startDate:todayStr(),endDate:"",monthOfYear:"1"});
-    setEditFixed(null); setAddMode(null);
+    resetFixedForm(); setEditFixed(null); setAddMode(null);
   };
   const deleteFixedItem = (id) => {
     setFixedItems(prev => prev.filter(f => f.id !== id));
@@ -295,24 +272,18 @@ function App() {
   const sh    = {background:"#fff",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"20px 20px 40px",maxHeight:"88vh",overflowY:"auto"};
 
   const YearSel = ({val, onChange, light}) => (
-    React.createElement("select", {
-      value: val,
-      onChange: e => onChange(+e.target.value),
-      style: {fontSize:13,fontWeight:500,border:light?"none":"1px solid #eee",borderRadius:8,padding:"3px 8px",background:light?"rgba(255,255,255,0.2)":"#f7f8fa",color:light?"#fff":"#111",outline:"none"}
-    }, allYears.map(y => React.createElement("option",{key:y,value:y,style:{color:"#111"}},`${y}年`)))
+    React.createElement("select", { value: val, onChange: e => onChange(+e.target.value), style: {fontSize:13,fontWeight:500,border:light?"none":"1px solid #eee",borderRadius:8,padding:"3px 8px",background:light?"rgba(255,255,255,0.2)":"#f7f8fa",color:light?"#fff":"#111",outline:"none"} },
+      allYears.map(y => React.createElement("option",{key:y,value:y,style:{color:"#111"}},`${y}年`))
+    )
   );
-
-  const resetFixedForm = () => setFixedForm({name:"",amount:"",category:"住房",period:"每月",dayOfPeriod:"1",startDate:todayStr(),endDate:"",monthOfYear:"1"});
 
   return (
     React.createElement("div", {style:{maxWidth:480,margin:"0 auto",background:"#f7f8fa",minHeight:"100vh"}},
 
-      // Toast
       toast && React.createElement("div",{style:{position:"fixed",top:56,left:"50%",transform:"translateX(-50%)",background:toast.type==="error"?"#E24B4A":toast.type==="info"?"#888":G,color:"#fff",padding:"9px 20px",borderRadius:20,fontSize:13,fontWeight:500,zIndex:999,whiteSpace:"nowrap",boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}},toast.msg),
 
-      // ── HOME ──
+      // HOME
       tab === "home" && React.createElement(React.Fragment, null,
-        // Header
         React.createElement("div",{style:{background:`linear-gradient(135deg,${G} 0%,#0e7a52 100%)`,padding:"48px 20px 28px",borderRadius:"0 0 28px 28px"}},
           React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}},
             React.createElement("span",{style:{color:"#fff",fontSize:16,fontWeight:700}},"🐟 小鱼儿账本"),
@@ -328,11 +299,9 @@ function App() {
             React.createElement("div",null,React.createElement("div",{style:{color:"rgba(255,255,255,0.65)",fontSize:11}},"结余"),React.createElement("div",{style:{color:"#fff",fontSize:15,fontWeight:600}},amt(income-homeTotal)))
           )
         ),
-        // Month tabs
         React.createElement("div",{style:{display:"flex",gap:6,overflowX:"auto",padding:"14px 16px 2px",scrollbarWidth:"none"}},
           MONTHS.map((m,i) => React.createElement("button",{key:m,onClick:()=>setHomeMonth(i+1),style:{flexShrink:0,padding:"5px 14px",borderRadius:20,border:"none",background:homeMonth===i+1?G:"#fff",color:homeMonth===i+1?"#fff":"#888",fontSize:13,fontWeight:homeMonth===i+1?600:400,cursor:"pointer",boxShadow:homeMonth===i+1?"0 2px 8px rgba(26,158,110,0.3)":"none"}},m))
         ),
-        // Fixed quick bar
         fixedItems.length > 0 && React.createElement("div",{style:{margin:"12px 16px 0",background:"#fff",borderRadius:14,padding:"12px 16px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}},
           React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
             React.createElement("span",{style:{fontSize:13,fontWeight:600,color:"#333"}},"🔁 固定支出"),
@@ -349,15 +318,12 @@ function App() {
             })
           )
         ),
-        // Record list
         React.createElement("div",{style:{padding:"12px 16px 100px"}},
           groupByDate.length === 0 && React.createElement("div",{style:{textAlign:"center",color:"#bbb",padding:"3rem 0",fontSize:14}},"暂无记录，点击 + 开始记账"),
           groupByDate.map(([date, recs]) =>
             React.createElement("div",{key:date,style:{marginBottom:12}},
               React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,padding:"0 2px"}},
-                React.createElement("span",{style:{fontSize:13,fontWeight:600,color:"#333"}},
-                  fmtDate(date)," ",React.createElement("span",{style:{color:"#bbb",fontWeight:400,fontSize:12}},weekdayName(date))
-                ),
+                React.createElement("span",{style:{fontSize:13,fontWeight:600,color:"#333"}},fmtDate(date)," ",React.createElement("span",{style:{color:"#bbb",fontWeight:400,fontSize:12}},weekdayName(date))),
                 React.createElement("span",{style:{fontSize:12,color:"#999"}},`共 ¥${recs.reduce((s,r)=>s+r.amount,0).toFixed(2)}`)
               ),
               React.createElement("div",{style:{background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}},
@@ -377,8 +343,8 @@ function App() {
                     ),
                     React.createElement("div",{style:{fontSize:15,fontWeight:700,color:"#E24B4A",flexShrink:0}},`-¥${r.amount.toFixed(2)}`),
                     React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:4,flexShrink:0}},
-                      React.createElement("button",{onClick:()=>openEdit(r),style:{background:"none",border:"none",color:"#bbb",cursor:"pointer",fontSize:13,padding:"2px 4px",lineHeight:1}},"✏️"),
-                      React.createElement("button",{onClick:()=>delRecord(r.id),style:{background:"none",border:"none",color:"#bbb",cursor:"pointer",fontSize:13,padding:"2px 4px",lineHeight:1}},"🗑️")
+                      React.createElement("button",{onClick:()=>openEdit(r),style:{background:"none",border:"none",color:"#bbb",cursor:"pointer",fontSize:13,padding:"2px 4px"}},"✏️"),
+                      React.createElement("button",{onClick:()=>delRecord(r.id),style:{background:"none",border:"none",color:"#bbb",cursor:"pointer",fontSize:13,padding:"2px 4px"}},"🗑️")
                     )
                   );
                 })
@@ -388,7 +354,7 @@ function App() {
         )
       ),
 
-      // ── STATS ──
+      // STATS
       tab === "stats" && React.createElement("div",{style:{padding:"52px 16px 100px"}},
         React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
           React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8}},
@@ -396,9 +362,7 @@ function App() {
             React.createElement(YearSel,{val:statsYear,onChange:y=>{setStatsYear(y);setAnalysis("");}})
           ),
           React.createElement("div",{style:{display:"flex",gap:4,background:"#eee",borderRadius:20,padding:3}},
-            ["本周","本月","本年"].map(p =>
-              React.createElement("button",{key:p,onClick:()=>{setStatsPeriod(p);setAnalysis("");},style:{padding:"5px 11px",borderRadius:17,border:"none",background:statsPeriod===p?"#fff":"transparent",color:statsPeriod===p?"#111":"#888",fontSize:13,fontWeight:statsPeriod===p?600:400,cursor:"pointer",boxShadow:statsPeriod===p?"0 1px 4px rgba(0,0,0,0.1)":"none"}},p)
-            )
+            ["本周","本月","本年"].map(p => React.createElement("button",{key:p,onClick:()=>{setStatsPeriod(p);setAnalysis("");},style:{padding:"5px 11px",borderRadius:17,border:"none",background:statsPeriod===p?"#fff":"transparent",color:statsPeriod===p?"#111":"#888",fontSize:13,fontWeight:statsPeriod===p?600:400,cursor:"pointer",boxShadow:statsPeriod===p?"0 1px 4px rgba(0,0,0,0.1)":"none"}},p))
           )
         ),
         statsPeriod === "本月" && React.createElement("div",{style:{display:"flex",gap:6,overflowX:"auto",marginBottom:12,scrollbarWidth:"none"}},
@@ -448,9 +412,7 @@ function App() {
                 React.createElement("div",{style:{fontSize:12,fontWeight:isToday?700:400,color:isToday?G:"#555"}},d.slice(8))
               ),
               React.createElement("div",{style:{flex:1}},
-                dayRecs.length > 0
-                  ? dayRecs.slice(0,2).map(r => React.createElement("div",{key:r.id,style:{fontSize:11,color:"#888",display:"flex",justifyContent:"space-between"}},React.createElement("span",null,(CAT_MAP[r.category]?.icon||""),(r.note||r.category),(r.isFixed?" 🔁":"")),React.createElement("span",null,`¥${r.amount.toFixed(0)}`)))
-                  : React.createElement("span",{style:{fontSize:11,color:"#ddd"}},"无记录"),
+                dayRecs.length > 0 ? dayRecs.slice(0,2).map(r => React.createElement("div",{key:r.id,style:{fontSize:11,color:"#888",display:"flex",justifyContent:"space-between"}},React.createElement("span",null,(CAT_MAP[r.category]?.icon||""),(r.note||r.category)),React.createElement("span",null,`¥${r.amount.toFixed(0)}`))) : React.createElement("span",{style:{fontSize:11,color:"#ddd"}},"无记录"),
                 dayRecs.length > 2 && React.createElement("div",{style:{fontSize:10,color:"#bbb"}},`+${dayRecs.length-2}笔`)
               ),
               React.createElement("div",{style:{fontSize:13,fontWeight:total>0?600:400,color:total>0?"#E24B4A":"#ddd",flexShrink:0}},total>0?`¥${total.toFixed(0)}`:"-")
@@ -462,27 +424,17 @@ function App() {
             React.createElement("span",{style:{fontSize:13,fontWeight:600,color:"#333"}},"✨ AI 智能分析"),
             React.createElement("button",{onClick:handleGenAnalysis,disabled:analysisLoading,style:{padding:"5px 12px",borderRadius:16,border:"none",background:G,color:"#fff",fontSize:12,fontWeight:500,cursor:"pointer",opacity:analysisLoading?0.6:1}},analysisLoading?"分析中...":"生成")
           ),
-          analysis
-            ? React.createElement("div",{style:{fontSize:13,lineHeight:1.9,color:"#555"}},analysis)
-            : React.createElement("div",{style:{fontSize:13,color:"#ccc",textAlign:"center",padding:"0.8rem"}},`点击生成 ${statsPeriod} AI 消费报告`)
+          analysis ? React.createElement("div",{style:{fontSize:13,lineHeight:1.9,color:"#555"}},analysis) : React.createElement("div",{style:{fontSize:13,color:"#ccc",textAlign:"center",padding:"0.8rem"}},`点击生成 ${statsPeriod} AI 消费报告`)
         )
       ),
 
-      // ── BOTTOM NAV ──
+      // BOTTOM NAV
       React.createElement("div",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"#fff",borderTop:"1px solid #f0f0f0",display:"flex",alignItems:"center",height:64,zIndex:100,boxShadow:"0 -4px 20px rgba(0,0,0,0.06)"}},
-        React.createElement("div",{onClick:()=>setTab("home"),style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer"}},
-          React.createElement("span",{style:{fontSize:20}},"🏠"),
-          React.createElement("span",{style:{fontSize:10,color:tab==="home"?G:"#bbb",fontWeight:tab==="home"?600:400}},"首页")
-        ),
+        React.createElement("div",{onClick:()=>setTab("home"),style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer"}},React.createElement("span",{style:{fontSize:20}},"🏠"),React.createElement("span",{style:{fontSize:10,color:tab==="home"?G:"#bbb",fontWeight:tab==="home"?600:400}},"首页")),
         React.createElement("div",{style:{flex:1,display:"flex",justifyContent:"center"}},
-          React.createElement("div",{onClick:()=>setShowAddMenu(v=>!v),style:{width:52,height:52,borderRadius:"50%",background:OR,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",boxShadow:"0 4px 14px rgba(255,107,53,0.45)",transform:showAddMenu?"rotate(45deg)":"none",transition:"transform 0.2s",marginTop:-20,border:"3px solid #fff"}},
-            React.createElement("span",{style:{color:"#fff",fontSize:26,lineHeight:1,marginTop:-2}},"+")
-          )
+          React.createElement("div",{onClick:()=>setShowAddMenu(v=>!v),style:{width:52,height:52,borderRadius:"50%",background:OR,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",boxShadow:"0 4px 14px rgba(255,107,53,0.45)",transform:showAddMenu?"rotate(45deg)":"none",transition:"transform 0.2s",marginTop:-20,border:"3px solid #fff"}},React.createElement("span",{style:{color:"#fff",fontSize:26,lineHeight:1,marginTop:-2}},"+"))
         ),
-        React.createElement("div",{onClick:()=>setTab("stats"),style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer"}},
-          React.createElement("span",{style:{fontSize:20}},"📊"),
-          React.createElement("span",{style:{fontSize:10,color:tab==="stats"?G:"#bbb",fontWeight:tab==="stats"?600:400}},"统计")
-        )
+        React.createElement("div",{onClick:()=>setTab("stats"),style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer"}},React.createElement("span",{style:{fontSize:20}},"📊"),React.createElement("span",{style:{fontSize:10,color:tab==="stats"?G:"#bbb",fontWeight:tab==="stats"?600:400}},"统计"))
       ),
 
       // FAB menu
@@ -490,16 +442,14 @@ function App() {
         React.createElement("div",{onClick:e=>e.stopPropagation(),style:{position:"fixed",bottom:80,left:"50%",transform:"translateX(-50%)",display:"flex",gap:18,zIndex:99}},
           [["📷","拍照","image"],["T","文字","text"],["🔁","固定","fixed"]].map(([icon,label,mode])=>
             React.createElement("div",{key:label,onClick:()=>{setShowAddMenu(false);setEditFixed(null);resetFixedForm();setAddMode(mode);},style:{display:"flex",flexDirection:"column",alignItems:"center",gap:6,cursor:"pointer"}},
-              React.createElement("div",{style:{width:52,height:52,borderRadius:"50%",background:"#222",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 14px rgba(0,0,0,0.28)"}},
-                React.createElement("span",{style:{color:"#fff",fontSize:20,fontWeight:600}},icon)
-              ),
+              React.createElement("div",{style:{width:52,height:52,borderRadius:"50%",background:"#222",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 14px rgba(0,0,0,0.28)"}},React.createElement("span",{style:{color:"#fff",fontSize:20,fontWeight:600}},icon)),
               React.createElement("span",{style:{color:"#fff",fontSize:11,fontWeight:500,textShadow:"0 1px 4px rgba(0,0,0,0.5)"}},label)
             )
           )
         )
       ),
 
-      // ── Text modal ──
+      // Text modal
       addMode === "text" && React.createElement("div",{style:mBase,onClick:()=>setAddMode(null)},
         React.createElement("div",{style:sh,onClick:e=>e.stopPropagation()},
           React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:16}},"💬 文字记账"),
@@ -508,16 +458,13 @@ function App() {
         )
       ),
 
-      // ── Image modal ──
+      // Image modal
       addMode === "image" && React.createElement("div",{style:mBase,onClick:()=>setAddMode(null)},
         React.createElement("div",{style:sh,onClick:e=>e.stopPropagation()},
           React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:16}},"📷 拍照记账"),
           React.createElement("input",{ref:fileRef,type:"file",accept:"image/*",onChange:e=>{const f=e.target.files?.[0];if(!f)return;const rd=new FileReader();rd.onload=ev=>{setImgPreview(ev.target.result);setImgBase64(ev.target.result.split(",")[1]);};rd.readAsDataURL(f);e.target.value="";},style:{display:"none"}}),
           !imgPreview
-            ? React.createElement("div",{onClick:()=>fileRef.current?.click(),style:{border:"2px dashed #ddd",borderRadius:14,padding:"32px",textAlign:"center",cursor:"pointer",background:"#fafafa",marginBottom:12}},
-                React.createElement("div",{style:{fontSize:40,marginBottom:8}},"📷"),
-                React.createElement("div",{style:{color:"#888",fontSize:14}},"点击上传小票 / 账单截图")
-              )
+            ? React.createElement("div",{onClick:()=>fileRef.current?.click(),style:{border:"2px dashed #ddd",borderRadius:14,padding:"32px",textAlign:"center",cursor:"pointer",background:"#fafafa",marginBottom:12}},React.createElement("div",{style:{fontSize:40,marginBottom:8}},"📷"),React.createElement("div",{style:{color:"#888",fontSize:14}},"点击上传小票 / 账单截图"))
             : React.createElement("div",{style:{marginBottom:12}},
                 React.createElement("div",{style:{position:"relative"}},
                   React.createElement("img",{src:imgPreview,alt:"",style:{width:"100%",borderRadius:12,maxHeight:220,objectFit:"contain",background:"#f5f5f5"}}),
@@ -529,25 +476,23 @@ function App() {
         )
       ),
 
-      // ── Fixed modal ──
+      // Fixed modal
       addMode === "fixed" && React.createElement("div",{style:mBase,onClick:()=>setAddMode(null)},
         React.createElement("div",{style:sh,onClick:e=>e.stopPropagation()},
           React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:4}},"🔁 固定支出管理"),
           React.createElement("div",{style:{fontSize:12,color:"#aaa",marginBottom:14}},"设置后在有效期内按周期自动添加账单"),
           fixedItems.length > 0 && React.createElement("div",{style:{marginBottom:16}},
-            fixedItems.map(item =>
-              React.createElement("div",{key:item.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#f7f8fa",borderRadius:10,marginBottom:8}},
-                React.createElement("div",{style:{width:36,height:36,borderRadius:9,background:(CAT_MAP[item.category]?.color||"#888")+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}},CAT_MAP[item.category]?.icon||"📌"),
-                React.createElement("div",{style:{flex:1,minWidth:0}},
-                  React.createElement("div",{style:{fontSize:13,fontWeight:600}},item.name),
-                  React.createElement("div",{style:{fontSize:11,color:"#aaa"}},`${item.period} · ${item.category}`),
-                  React.createElement("div",{style:{fontSize:11,color:"#bbb"}},`${item.startDate} → ${item.endDate||"长期"}`)
-                ),
-                React.createElement("div",{style:{fontSize:14,fontWeight:700}},`¥${item.amount}`),
-                React.createElement("span",{onClick:()=>{setEditFixed(item);setFixedForm({name:item.name,amount:String(item.amount),category:item.category,period:item.period,dayOfPeriod:item.dayOfPeriod||"1",startDate:item.startDate||todayStr(),endDate:item.endDate||"",monthOfYear:item.monthOfYear||"1"});},style:{color:G,fontSize:12,cursor:"pointer",padding:"2px 6px"}},"编辑"),
-                React.createElement("span",{onClick:()=>deleteFixedItem(item.id),style:{color:"#E24B4A",fontSize:12,cursor:"pointer",padding:"2px 6px"}},"删除")
-              )
-            )
+            fixedItems.map(item => React.createElement("div",{key:item.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#f7f8fa",borderRadius:10,marginBottom:8}},
+              React.createElement("div",{style:{width:36,height:36,borderRadius:9,background:(CAT_MAP[item.category]?.color||"#888")+"18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0}},CAT_MAP[item.category]?.icon||"📌"),
+              React.createElement("div",{style:{flex:1,minWidth:0}},
+                React.createElement("div",{style:{fontSize:13,fontWeight:600}},item.name),
+                React.createElement("div",{style:{fontSize:11,color:"#aaa"}},`${item.period} · ${item.category}`),
+                React.createElement("div",{style:{fontSize:11,color:"#bbb"}},`${item.startDate} → ${item.endDate||"长期"}`)
+              ),
+              React.createElement("div",{style:{fontSize:14,fontWeight:700}},`¥${item.amount}`),
+              React.createElement("span",{onClick:()=>{setEditFixed(item);setFixedForm({name:item.name,amount:String(item.amount),category:item.category,period:item.period,dayOfPeriod:item.dayOfPeriod||"1",startDate:item.startDate||todayStr(),endDate:item.endDate||"",monthOfYear:item.monthOfYear||"1"});},style:{color:G,fontSize:12,cursor:"pointer",padding:"2px 6px"}},"编辑"),
+              React.createElement("span",{onClick:()=>deleteFixedItem(item.id),style:{color:"#E24B4A",fontSize:12,cursor:"pointer",padding:"2px 6px"}},"删除")
+            ))
           ),
           React.createElement("div",{style:{background:"#f7f8fa",borderRadius:12,padding:"14px",marginBottom:14}},
             React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"#333",marginBottom:10}},editFixed?"编辑固定支出":"+ 添加新固定支出"),
@@ -579,7 +524,7 @@ function App() {
         )
       ),
 
-      // ── Fixed detail ──
+      // Fixed detail
       detailFixed && React.createElement("div",{style:mBase,onClick:()=>setDetailFixed(null)},
         React.createElement("div",{style:{...sh,padding:"20px 20px 36px"},onClick:e=>e.stopPropagation()},
           React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:14}},detailFixed.name),
@@ -595,7 +540,7 @@ function App() {
         )
       ),
 
-      // ── Edit record ──
+      // Edit record
       editRec && React.createElement("div",{style:mBase,onClick:()=>setEditRec(null)},
         React.createElement("div",{style:sh,onClick:e=>e.stopPropagation()},
           React.createElement("div",{style:{fontSize:16,fontWeight:700,marginBottom:16}},"✏️ 编辑账单"),
