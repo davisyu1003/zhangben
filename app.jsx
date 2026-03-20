@@ -31,6 +31,15 @@ const callAI = async (text, imageBase64 = null) => {
   return data.choices?.[0]?.message?.content?.trim() || "";
 };
 
+const parseJSON = (text) => {
+  try { return JSON.parse(text); } catch {}
+  const cleaned = text.replace(/```json|```/gi, "").trim();
+  try { return JSON.parse(cleaned); } catch {}
+  const match = cleaned.match(/\[[\s\S]*\]/);
+  if (match) { try { return JSON.parse(match[0]); } catch {} }
+  throw new Error("无法解析返回内容：" + text.slice(0, 100));
+};
+
 const CATS = [
   {name:"餐饮",icon:"🍜",color:"#FF6B35"},{name:"购物",icon:"🛒",color:"#E24B4A"},
   {name:"交通",icon:"🚗",color:"#378ADD"},{name:"住房",icon:"🏠",color:"#7F77DD"},
@@ -214,7 +223,7 @@ function App() {
     if (!aiInput.trim()) return; setAiLoading(true);
     try {
       const t = await callAI(`从以下描述提取消费记录，返回JSON数组，每项: date(YYYY-MM-DD，无则${todayStr()}),amount(数字),category(餐饮/购物/交通/住房/娱乐/医疗/教育/通讯/人情/其他),note(简短)。只返回JSON数组，不要任何其他文字。描述：${aiInput}`);
-      addRecords(JSON.parse(t.replace(/```json|```/g,"").trim())); setAiInput(""); setAddMode(null);
+      addRecords(parseJSON(t)); setAiInput(""); setAddMode(null);
     } catch(e) { showToast("解析失败：" + e.message, "error"); }
     setAiLoading(false);
   };
@@ -222,7 +231,7 @@ function App() {
     if (!imgBase64) return; setImgLoading(true);
     try {
       const t = await callAI(`识别图片中的消费信息，返回JSON数组，每项: date(YYYY-MM-DD，无则${todayStr()}),amount(数字人民币),category(餐饮/购物/交通/住房/娱乐/医疗/教育/通讯/人情/其他),note(商家或商品名)。只返回JSON数组，不要任何其他文字。`, imgBase64);
-      addRecords(JSON.parse(t.replace(/```json|```/g,"").trim())); setImgPreview(null); setImgBase64(null); setAddMode(null);
+      addRecords(parseJSON(t)); setImgPreview(null); setImgBase64(null); setAddMode(null);
     } catch(e) { showToast("识别失败：" + e.message, "error"); }
     setImgLoading(false);
   };
